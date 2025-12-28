@@ -3,6 +3,9 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 
 export const runtime = "nodejs"
 
+// Simple in-memory cache for resolved image URLs (per query)
+const imageCache = new Map<string, string>()
+
 async function isImageUrlAccessible(url: string): Promise<boolean> {
   if (!url) return false
   
@@ -29,104 +32,93 @@ async function isImageUrlAccessible(url: string): Promise<boolean> {
   }
 }
 
-async function fetchUnsplashImage(productName: string, keywords?: string): Promise<string> {
+function buildImageSearchQuery(productName: string, keywords?: string): string {
+  const base = (keywords || productName || "").toLowerCase()
+
+  const cleaned = base
+    .replace(/\(.*?\)/g, "") // remove parenthetical noise
+    .replace(/\+.*$/g, "") // drop trailing + metadata
+    .replace(/[^a-z0-9\s-]/gi, " ") // strip special chars
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (!cleaned) return ""
+
+  // Nudge towards commercial pack-shot style images
+  return `${cleaned} product photo`
+}
+
+type GoogleImageItem = {
+  link?: string
+  image?: {
+    height?: number
+    width?: number
+    byteSize?: number
+    thumbnailLink?: string
+  }
+}
+
+function isAcceptableImageItem(item: GoogleImageItem): boolean {
+  const h = item.image?.height
+  const w = item.image?.width
+
+  // If dimensions are known, filter out extreme aspect ratios and tiny images
+  if (h && w) {
+    const ratio = h / w
+    if (ratio > 1.35 || ratio < 0.65) return false // avoid super-tall or super-wide banners
+    if (h < 300 || w < 300) return false // avoid small/low-res
+  }
+  return true
+}
+
+async function fetchGoogleImage(productName: string, keywords?: string): Promise<string> {
   try {
-    const accessKey = process.env.UNSPLASH_ACCESS_KEY
-    if (!accessKey) {
-      console.error("Missing UNSPLASH_ACCESS_KEY")
+    const apiKey = process.env.GOOGLE_CUSTOM_SEARCH_API_KEY
+    const cx = process.env.GOOGLE_CUSTOM_SEARCH_CX
+
+    if (!apiKey || !cx) {
+      console.error("Missing GOOGLE_CUSTOM_SEARCH_API_KEY or GOOGLE_CUSTOM_SEARCH_CX")
       return ""
     }
 
-    // Use provided keywords if available, otherwise extract from product name
-    let searchQuery = keywords ? keywords.toLowerCase() : productName.toLowerCase()
-    
-    // Only apply cleanup if we're not using provided keywords
-    if (!keywords) {
-      // Remove common prefixes/modifiers that make searches too specific
-      searchQuery = searchQuery
-        .replace(/^(personalized|customized|custom|premium|luxury|exclusive|handcrafted|artisan|designer)\s+/gi, "")
-        .replace(/\s+(set|kit|pack|box|bundle|collection)\s*(\(.*?\))?$/gi, "")
-        .replace(/\(.*?\)/g, "") // Remove content in parentheses like (12pc)
-        .replace(/\+.*$/g, "") // Remove everything after + sign
-        .trim()
-    }
+    const query = buildImageSearchQuery(productName, keywords)
+    if (!query) return ""
 
-    // Special handling for gift cards and subscriptions
-    if (searchQuery.includes("gift card") || searchQuery.includes("voucher")) {
-      // Extract the brand/category before "gift card"
-      const match = searchQuery.match(/^(.+?)\s+(gift card|voucher)/i)
-      if (match) {
-        const category = match[1]
-        // For specific brands, search for the category instead
-        if (category.includes("salon") || category.includes("spa")) {
-          searchQuery = "luxury spa salon interior"
-        } else if (category.includes("restaurant") || category.includes("dining")) {
-          searchQuery = "fine dining restaurant"
-        } else {
-          searchQuery = `${category} gift`
-        }
-      }
-    } else if (searchQuery.includes("subscription")) {
-      // For subscriptions, search for the service/category
-      const match = searchQuery.match(/^(.+?)\s+subscription/i)
-      if (match) {
-        const service = match[1]
-        if (service.includes("food") || service.includes("swiggy") || service.includes("zomato")) {
-          searchQuery = "food delivery service"
-        } else if (service.includes("fitness") || service.includes("cult") || service.includes("gym")) {
-          searchQuery = "fitness workout gym"
-        } else if (service.includes("music") || service.includes("spotify")) {
-          searchQuery = "music streaming headphones"
-        } else {
-          searchQuery = service
-        }
-      }
-    }
+    const cacheKey = `${query}`
+    const cached = imageCache.get(cacheKey)
+    if (cached) return cached
 
-    // Try primary search
-    let response = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=1&orientation=portrait`,
-      {
-        headers: {
-          Authorization: `Client-ID ${accessKey}`,
-        },
-      }
-    )
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&searchType=image&num=5&imgType=photo`
+    const response = await fetch(url)
 
     if (!response.ok) {
-      console.error(`Unsplash API error: ${response.status}`)
+      console.error(`Google Custom Search error: ${response.status}`)
       return ""
     }
 
-    let data = await response.json()
-    
-    if (data.results && data.results.length > 0) {
-      return data.results[0].urls.regular || ""
-    }
+    const data = await response.json()
+    const items: GoogleImageItem[] = Array.isArray(data.items) ? data.items : []
 
-    // Fallback: Try with just the first significant word
-    const firstWord = searchQuery.split(" ")[0]
-    if (firstWord && firstWord.length > 3) {
-      response = await fetch(
-        `https://api.unsplash.com/search/photos?query=${encodeURIComponent(firstWord)}&per_page=1&orientation=portrait`,
-        {
-          headers: {
-            Authorization: `Client-ID ${accessKey}`,
-          },
-        }
-      )
+    // Prefer items with acceptable aspect ratio / size; fallback to any links if none match
+    const primaryCandidates = items.filter(isAcceptableImageItem)
+    const fallbackCandidates = primaryCandidates.length > 0 ? primaryCandidates : items
 
-      if (response.ok) {
-        data = await response.json()
-        if (data.results && data.results.length > 0) {
-          return data.results[0].urls.regular || ""
-        }
+    const candidateLinks = fallbackCandidates
+      .map((item) => item.link)
+      .filter((link): link is string => typeof link === "string" && !!link)
+      .slice(0, 5)
+
+    for (const link of candidateLinks) {
+      const ok = await isImageUrlAccessible(link)
+      if (ok) {
+        imageCache.set(cacheKey, link)
+        return link
       }
     }
-    
+
     return ""
   } catch (error) {
-    console.error("Error fetching Unsplash image:", error)
+    console.error("Error fetching Google image:", error)
     return ""
   }
 }
@@ -459,8 +451,8 @@ Each item in the array MUST have:
 
 - id: string
 - name: string
-- image: string (CRITICAL: Provide a direct, working image URL of the actual gift product. Search for and include a real product image link that displays the gift item. The URL must be a direct link to an image file that shows the actual product. If you cannot find a reliable product image URL, leave this field empty.)
-- imageKeywords: string (IMPORTANT: Provide 2-3 simple, descriptive keywords that represent the product visually for image search. These will be used as a fallback to find relevant images. Examples: "tea set ceramic", "photo frame wooden", "spa voucher card", "fitness gym equipment". Keep it simple and visual.)
+- image: string (leave empty; the system will fetch an image using the keywords you provide)
+- imageKeywords: string (IMPORTANT: Provide 2-3 simple, descriptive keywords that represent the product visually for image search. Examples: "tea set ceramic", "photo frame wooden", "spa voucher card", "fitness gym equipment". Keep it simple and visual. This field is mandatory.)
 - reasoning: string (1–2 sentences explaining why this gift fits THIS person)
 - priceRange: string (INR format, e.g. "₹1,500 - ₹2,500")
 
@@ -520,21 +512,8 @@ Return ONLY the JSON array.
       recommendations.slice(0, 5).map(async (rec) => {
         let finalImage = ""
         
-        // First, check if AI provided an image URL and if it's accessible
-        if (rec.image) {
-          const isAccessible = await isImageUrlAccessible(rec.image)
-          if (isAccessible) {
-            console.log(`Using AI-provided image for: ${rec.name}`)
-            finalImage = rec.image
-          } else {
-            console.log(`AI-provided image not accessible for: ${rec.name}, falling back to Unsplash`)
-          }
-        }
-        
-        // If no valid image from AI, fallback to Unsplash with keywords
-        if (!finalImage) {
-          finalImage = await fetchUnsplashImage(rec.name, rec.imageKeywords)
-        }
+        // Always fetch image via Google Custom Search using AI-provided keywords (or name fallback)
+        finalImage = await fetchGoogleImage(rec.name, rec.imageKeywords)
         
         return {
           ...rec,

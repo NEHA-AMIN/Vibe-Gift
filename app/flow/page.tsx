@@ -39,7 +39,7 @@ export default function FlowPage() {
       // Final step - save state and navigate
       setTimeout(() => {
         sessionStorage.setItem("giftState", JSON.stringify({ ...state, [key]: value }))
-        router.push("/loading")
+        router.push("/recommendations")
       }, 300)
     }
   }

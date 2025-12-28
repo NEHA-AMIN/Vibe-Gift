@@ -20,6 +20,7 @@ export default function RecommendationsPage() {
   const router = useRouter()
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const hasLoadedRef = useRef(false)
 
   useEffect(() => {
@@ -28,8 +29,25 @@ export default function RecommendationsPage() {
     hasLoadedRef.current = true
 
     const load = async () => {
+      // First try cached recommendations from the loading screen to avoid a second spinner
+      const cached = sessionStorage.getItem("recommendationsCache")
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached) as Recommendation[]
+          setRecommendations(parsed)
+          sessionStorage.removeItem("recommendationsCache")
+          setIsLoading(false)
+          return
+        } catch {
+          sessionStorage.removeItem("recommendationsCache")
+        }
+      }
+
       const giftStateJson = sessionStorage.getItem("giftState")
-      if (!giftStateJson) return
+      if (!giftStateJson) {
+        setIsLoading(false)
+        return
+      }
 
       try {
         const giftState = JSON.parse(giftStateJson)
@@ -37,6 +55,8 @@ export default function RecommendationsPage() {
         setRecommendations(recs)
       } catch {
         setRecommendations([])
+      } finally {
+        setIsLoading(false)
       }
     }
 
@@ -96,34 +116,20 @@ export default function RecommendationsPage() {
             <p className="text-muted-foreground">We've selected these gifts based on your answers</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {recommendations.slice(0, 3).map((gift) => (
-              <Card key={gift.id} className="overflow-hidden flex flex-col">
-                <div className="aspect-square bg-muted relative">
-                  <img src={gift.image || "/placeholder.svg"} alt={gift.name} className="w-full h-full object-cover" />
-                </div>
-                <div className="p-5 flex-1 flex flex-col">
-                  <h3 className="font-semibold text-lg mb-2">{gift.name}</h3>
-                  <p className="text-sm text-muted-foreground mb-3 flex-1">{gift.reasoning}</p>
-                  <div className="text-sm font-medium text-primary mb-4">{gift.priceRange}</div>
-                  <Button onClick={() => handleSelectGift(gift)} className="w-full">
-                    Select this gift
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-
-          {recommendations.length > 3 && (
-            <div className="space-y-4 mt-12">
-              <div className="text-center space-y-2">
-                <h2 className="text-2xl font-bold">Gift Cards & Subscriptions</h2>
-                <p className="text-muted-foreground text-sm">Give the gift of choice and flexibility</p>
+          {isLoading || isRefreshing ? (
+            <div className="flex justify-center py-12">
+              <div className="space-y-3 text-center">
+                <div className="loader mx-auto" aria-label="Loading recommendations" />
+                <h2 className="text-2xl font-semibold">Finding your perfect gifts</h2>
+                <p className="text-muted-foreground text-sm">Understanding their vibe…</p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
-                {recommendations.slice(3, 5).map((gift) => (
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {recommendations.slice(0, 3).map((gift) => (
                   <Card key={gift.id} className="overflow-hidden flex flex-col">
-                    <div className="aspect-video bg-gradient-to-br from-primary/10 to-primary/5 relative flex items-center justify-center">
+                    <div className="aspect-square bg-muted relative">
                       <img src={gift.image || "/placeholder.svg"} alt={gift.name} className="w-full h-full object-cover" />
                     </div>
                     <div className="p-5 flex-1 flex flex-col">
@@ -137,13 +143,44 @@ export default function RecommendationsPage() {
                   </Card>
                 ))}
               </div>
-            </div>
+
+              {recommendations.length > 3 && (
+                <div className="space-y-4 mt-12">
+                  <div className="text-center space-y-2">
+                    <h2 className="text-2xl font-bold">Gift Cards & Subscriptions</h2>
+                    <p className="text-muted-foreground text-sm">Give the gift of choice and flexibility</p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+                    {recommendations.slice(3, 5).map((gift) => (
+                      <Card key={gift.id} className="overflow-hidden flex flex-col">
+                        <div className="aspect-video bg-gradient-to-br from-primary/10 to-primary/5 relative flex items-center justify-center">
+                          <img src={gift.image || "/placeholder.svg"} alt={gift.name} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="p-5 flex-1 flex flex-col">
+                          <h3 className="font-semibold text-lg mb-2">{gift.name}</h3>
+                          <p className="text-sm text-muted-foreground mb-3 flex-1">{gift.reasoning}</p>
+                          <div className="text-sm font-medium text-primary mb-4">{gift.priceRange}</div>
+                          <Button onClick={() => handleSelectGift(gift)} className="w-full">
+                            Select this gift
+                          </Button>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           <div className="flex justify-center">
-            <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing} className="gap-2 bg-transparent">
+            <Button
+              variant="outline"
+              onClick={handleRefresh}
+              disabled={isRefreshing || isLoading}
+              className="gap-2 bg-transparent"
+            >
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-              {isRefreshing ? "Refreshing..." : "Refresh recommendations"}
+              {isRefreshing || isLoading ? "Please wait..." : "Refresh recommendations"}
             </Button>
           </div>
         </div>
