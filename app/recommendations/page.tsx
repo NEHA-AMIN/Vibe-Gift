@@ -92,7 +92,7 @@ export default function RecommendationsPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {recommendations.map((gift) => (
+            {recommendations.slice(0, 3).map((gift) => (
               <Card key={gift.id} className="overflow-hidden flex flex-col">
                 <div className="aspect-square bg-muted relative">
                   <img src={gift.image || "/placeholder.svg"} alt={gift.name} className="w-full h-full object-cover" />
@@ -108,6 +108,32 @@ export default function RecommendationsPage() {
               </Card>
             ))}
           </div>
+
+          {recommendations.length > 3 && (
+            <div className="space-y-4 mt-12">
+              <div className="text-center space-y-2">
+                <h2 className="text-2xl font-bold">Gift Cards & Subscriptions</h2>
+                <p className="text-muted-foreground text-sm">Give the gift of choice and flexibility</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+                {recommendations.slice(3, 5).map((gift) => (
+                  <Card key={gift.id} className="overflow-hidden flex flex-col">
+                    <div className="aspect-video bg-gradient-to-br from-primary/10 to-primary/5 relative flex items-center justify-center">
+                      <img src={gift.image || "/placeholder.svg"} alt={gift.name} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="p-5 flex-1 flex flex-col">
+                      <h3 className="font-semibold text-lg mb-2">{gift.name}</h3>
+                      <p className="text-sm text-muted-foreground mb-3 flex-1">{gift.reasoning}</p>
+                      <div className="text-sm font-medium text-primary mb-4">{gift.priceRange}</div>
+                      <Button onClick={() => handleSelectGift(gift)} className="w-full">
+                        Select this gift
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-center">
             <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing} className="gap-2 bg-transparent">
