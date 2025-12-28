@@ -1,9 +1,10 @@
 // API functions for recommendations (Gemini-backed)
 
 export type GiftState = {
+  ageGroup: string
+  gender: string
   relationship: string
   occasion: string
-  generation: string
   lifestyle: string
   budget: string
 }

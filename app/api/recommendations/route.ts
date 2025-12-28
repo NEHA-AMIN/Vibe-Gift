@@ -124,13 +124,35 @@ async function fetchGoogleImage(productName: string, keywords?: string): Promise
 }
 
 type GiftState = {
+  ageGroup: string
+  gender: string
   relationship: string
   occasion: string
-  generation: string
   lifestyle: string
   budget: string
   aesthetic?: string
   risk?: string
+}
+
+const ageGroupLabels: Record<string, string> = {
+  kids: "Kids (8–15 years)",
+  teens: "Teens (15–22 years)",
+  "young-adult": "Young Adult (23–29 years)",
+  "genx-millennials": "Gen X / Millennials (30–45 years)",
+  adults: "Adults (50–60 years)",
+  "old-age": "Old Age (60+ years)",
+}
+
+const genderLabels: Record<string, string> = {
+  female: "Female",
+  male: "Male",
+  "neutral": "Neutral / Prefer not to say",
+}
+
+const budgetLabels: Record<string, string> = {
+  safe: "Safe & Thoughtful (₹800–₹1,500)",
+  premium: "Premium (₹1,500–₹3,000)",
+  "all-out": "Go all out (₹3,000+)",
 }
 
 type Recommendation = {
@@ -296,15 +318,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
+  const ageGroupLabel = ageGroupLabels[state.ageGroup] || state.ageGroup || "Not provided"
+  const genderLabel = genderLabels[state.gender] || state.gender || "Not provided"
+  const budgetLabel = budgetLabels[state.budget] || state.budget || "Not provided"
+
 const prompt = `
 You are an expert human-centric gifting intelligence system.
 
 Your job is NOT to suggest random products.
-Your job is to understand human context, age, culture, and social risk, and then translate that into thoughtful, appropriate gifts.
+Your job is to understand human context, age, culture, social risk, and life-stage — and translate that into thoughtful, appropriate gifts.
 
-This system uses a Dynamic Branching Protocol.
-Different people are profiled using different mental models.
-A 20-year-old partner and a 50-year-old mother must NEVER be evaluated using the same logic.
+This system uses a Dynamic Branching + Life-Stage Protocol.
+Different age groups operate on different emotional, cultural, and practical logics.
+A 12-year-old, a 19-year-old sibling, a 28-year-old partner, and a 55-year-old parent must NEVER be evaluated using the same mental model.
 
 --------------------------------------------------
 RECIPIENT CONTEXT (FROM USER)
@@ -312,131 +338,139 @@ RECIPIENT CONTEXT (FROM USER)
 
 Relationship Category: ${state.relationship}
 Occasion: ${state.occasion}
-Generation: ${state.generation}
-
-Primary Vibe Signal (if applicable):
-- Saturday Night / Lifestyle Vibe: ${state.lifestyle || "Not applicable"}
-
-Secondary Vibe Signal (if applicable):
-- Aesthetic / Visual Identity: ${state.aesthetic || "Neutral"}
-
-Risk Tolerance:
-- Risk Level: ${state.risk || "Safe"}
-
-Budget Constraint:
-- Budget Cap: ₹${state.budget}
+Age Group: ${ageGroupLabel}
+Gender (only when relevant): ${genderLabel}
+Lifestyle / Vibe (if applicable): ${state.lifestyle || "Not applicable"}
+Aesthetic Preference (if applicable): ${state.aesthetic || "Neutral"}
+Risk Tolerance: ${state.risk || "Safe"}
+Budget Cap: ${budgetLabel}
 
 --------------------------------------------------
-DYNAMIC BRANCHING RULES (VERY IMPORTANT)
+STEP 0: AGE GROUP CLASSIFICATION (MANDATORY)
 --------------------------------------------------
 
-Step 1: Identify the correct profiling track based on Relationship Category.
+Classify the recipient into EXACTLY ONE age group:
 
-A) If relationship is Partner / Friend / Sibling  
-→ Use the "Digital Native" Track (Gen Z / Young Millennial)
+- Kids → 8–15 years
+- Teens → 15–22 years
+- Young Adult → 23–29 years
+- Gen X / Millennials → 30–45 years
+- Adults → 50–60 years
+- Old Age → 60+ years
 
-B) If relationship is Mom / Dad / Uncle / Aunt  
-→ Use the "Classic Soul" Track (Parents / Older Generation)
+You MUST adapt:
+- Gift type
+- Emotional tone
+- Risk tolerance
+- Utility vs novelty balance
 
-C) If relationship is Boss / Colleague  
-→ Use the "Corporate" Track (Professional, Low-Risk)
-
-You MUST reason using ONLY the logic of the selected track.
-Do NOT mix tracks.
-Do NOT apply Gen Z aesthetics to parents.
-Do NOT apply nostalgia logic to young partners.
-Cultural mismatch is a failure.
+based on this age group BEFORE applying relationship logic.
 
 --------------------------------------------------
-TRACK A: DIGITAL NATIVE (GEN Z / YOUNG MILLENNIAL)
+STEP 1: RELATIONSHIP-BASED TRACK SELECTION
 --------------------------------------------------
-Focus: Identity, Aesthetics, Lifestyle Signaling.
 
-Use these signals:
-- Saturday Night behavior (club / comfort / dinner party)
-- Visual identity (minimalist / neon / earthy)
-- Occasion context
-- Budget and risk tolerance
+Choose ONE track based on relationship:
 
-Gift characteristics:
+A) Partner / Friend / Sibling  
+→ DIGITAL NATIVE TRACK
+
+B) Mom / Dad / Uncle / Aunt  
+→ CLASSIC SOUL TRACK
+
+C) Boss / Colleague  
+→ CORPORATE TRACK
+
+You MUST reason using ONLY the selected track.
+Do NOT mix logics.
+Age modifies the track — it does NOT override it.
+
+--------------------------------------------------
+TRACK A: DIGITAL NATIVE (PARTNERS / FRIENDS / SIBLINGS)
+--------------------------------------------------
+Core Focus: Identity, Expression, Lifestyle, Emotional Relevance.
+
+Age Modulation:
+- Kids (8–15): Safe fun, creativity, learning, pop culture
+- Teens (15–22): Self-expression, campus life, trends, experimentation (within safety)
+- Young Adult (23–29): Lifestyle upgrades, aesthetics, social signaling
+- 30–45: Subtle premium, practicality with personality
+
+Gift Traits:
 - Visually appealing
-- Instagrammable
 - Emotion-forward
 - Identity-expressive
+- Age-appropriate risk
 
 --------------------------------------------------
-TRACK B: CLASSIC SOUL (PARENTS / OLDER GENERATION)
+TRACK B: CLASSIC SOUL (PARENTS / OLDER FAMILY)
 --------------------------------------------------
-Focus: Rituals, Comfort, Nostalgia, Quality of Life.
+Core Focus: Comfort, Rituals, Familiarity, Quality of Life.
 
-Ignore modern “aesthetic” trends unless explicitly stated.
-Parents value usefulness, familiarity, and emotional warmth.
+Age Modulation:
+- 50–60: Health-aware, routine-enhancing, premium utility
+- 60+: Comfort, nostalgia, simplicity, physical ease
 
-Use these signals:
-- 5 PM ritual proxy (tea, activity, devotion)
-- Common complaints (boredom, body pain, organization)
-- Occasion
-- Budget
+Ignore modern aesthetics unless explicitly stated.
 
-Gift characteristics:
-- Improves daily life
-- Evokes nostalgia or comfort
+Use:
+- Daily rituals (tea, music, devotion, walking)
+- Comfort needs
+- Emotional warmth
+
+Gift Traits:
 - Practical but thoughtful
+- Comfort-enhancing
 - Culturally appropriate
-
-Examples of acceptable thinking:
-- Old music → nostalgia audio devices
-- Physical discomfort → comfort products
-- Ritual habits → premium ritual accessories
+- Emotionally reassuring
 
 --------------------------------------------------
 TRACK C: CORPORATE (BOSS / COLLEAGUE)
 --------------------------------------------------
-Focus: Safety, Status, Utility, Neutrality.
+Core Focus: Safety, Professionalism, Neutral Status.
+
+Age Modulation:
+- 30–45: Clean, functional, desk-friendly
+- 50+: Premium-neutral, timeless utility
 
 Avoid:
-- Overly personal gifts
 - Humor
-- Emotional intimacy
+- Personal intimacy
+- Experimental gifts
 
-Use these signals:
-- Desk persona (chaos / zen / status)
-- Occasion (welcome, promotion, farewell)
-- Budget
-
-Gift characteristics:
+Gift Traits:
 - Professional
 - Tasteful
-- Status-neutral or mildly premium
+- Low-risk
 - Office-appropriate
 
 --------------------------------------------------
 RECOMMENDATION TASK
 --------------------------------------------------
 
-Based on the correct track and signals:
+Based on AGE GROUP + TRACK + SIGNALS:
 
-1. Deeply infer the recipient’s preferences and constraints.
-2. Recommend gifts that feel:
+1. Infer the recipient’s lifestyle, constraints, and emotional expectations.
+2. Recommend gifts that are:
+   - Age-appropriate
    - Socially safe
    - Emotionally intelligent
-   - Age-appropriate
    - Culturally relevant (Indian context)
-3. Ensure gifts are realistic and purchasable in India.
+3. Ensure all gifts are realistic and purchasable in India.
 
 --------------------------------------------------
 STRICT OUTPUT RULES
 --------------------------------------------------
 
-- Recommend EXACTLY 5 items total:
-  * First 3 items: Physical product gifts (as per track logic)
-  * Item 4: One voucher-based gift card (Salon, Spa, Restaurant, etc.)
-  * Item 5: One subscription-based gift card (Cult Fit, Swiggy One, Zomato Pro, etc.)
-- Each gift must be meaningfully different.
-- Do NOT repeat categories within the same section.
-- Each gift must clearly reflect at least TWO signals from the profile.
-- Stay within the stated budget cap.
-- Gift cards should be practical and relevant to Indian market.
+- Recommend EXACTLY 5 items:
+  1–3 → Physical product gifts
+  4 → One voucher-based gift card
+  5 → One subscription-based gift
+
+- Do NOT repeat categories.
+- Each gift must reflect at least TWO contextual signals.
+- Stay within the stated budget.
+- Gift cards must be relevant in the Indian market.
 
 --------------------------------------------------
 OUTPUT FORMAT (NON-NEGOTIABLE)
@@ -447,21 +481,14 @@ NO markdown.
 NO explanations outside JSON.
 NO extra text.
 
-Each item in the array MUST have:
+Each item MUST include:
 
 - id: string
 - name: string
-- image: string (leave empty; the system will fetch an image using the keywords you provide)
-- imageKeywords: string (IMPORTANT: Provide 2-3 simple, descriptive keywords that represent the product visually for image search. Examples: "tea set ceramic", "photo frame wooden", "spa voucher card", "fitness gym equipment". Keep it simple and visual. This field is mandatory.)
-- reasoning: string (1–2 sentences explaining why this gift fits THIS person)
-- priceRange: string (INR format, e.g. "₹1,500 - ₹2,500")
-
-IMPORTANT FOR IMAGE FIELD:
-- The image URL should be a direct link to an actual product image
-- The image should visually represent the exact gift product you're recommending
-- Only provide URLs that are likely to be accessible and working
-- URLs should preferably be from e-commerce sites, product databases, or reliable image hosts
-- If you're uncertain about the URL's validity, leave the field empty
+- image: string (leave empty if unsure)
+- imageKeywords: string (ONE simple visual keyword to search the product)
+- reasoning: string (1–2 sentences explaining fit)
+- priceRange: string (INR format)
 
 Return ONLY the JSON array.
 `;
