@@ -3,7 +3,33 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 
 export const runtime = "nodejs"
 
-async function fetchUnsplashImage(productName: string): Promise<string> {
+async function isImageUrlAccessible(url: string): Promise<boolean> {
+  if (!url) return false
+  
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
+    
+    const response = await fetch(url, { 
+      method: 'HEAD',
+      signal: controller.signal,
+      redirect: 'follow'
+    })
+    
+    clearTimeout(timeoutId)
+    return response.ok && response.headers.get('content-type')?.startsWith('image/')
+  } catch (error) {
+    // Silently handle timeout and network errors - they're expected for invalid URLs
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+      return false
+    }
+    // Log other unexpected errors
+    console.error(`Failed to check image URL: ${url.substring(0, 100)}...`, error instanceof Error ? error.message : String(error))
+    return false
+  }
+}
+
+async function fetchUnsplashImage(productName: string, keywords?: string): Promise<string> {
   try {
     const accessKey = process.env.UNSPLASH_ACCESS_KEY
     if (!accessKey) {
@@ -11,16 +37,19 @@ async function fetchUnsplashImage(productName: string): Promise<string> {
       return ""
     }
 
-    // Enhanced search term extraction
-    let searchQuery = productName.toLowerCase()
+    // Use provided keywords if available, otherwise extract from product name
+    let searchQuery = keywords ? keywords.toLowerCase() : productName.toLowerCase()
     
-    // Remove common prefixes/modifiers that make searches too specific
-    searchQuery = searchQuery
-      .replace(/^(personalized|customized|custom|premium|luxury|exclusive|handcrafted|artisan|designer)\s+/gi, "")
-      .replace(/\s+(set|kit|pack|box|bundle|collection)\s*(\(.*?\))?$/gi, "")
-      .replace(/\(.*?\)/g, "") // Remove content in parentheses like (12pc)
-      .replace(/\+.*$/g, "") // Remove everything after + sign
-      .trim()
+    // Only apply cleanup if we're not using provided keywords
+    if (!keywords) {
+      // Remove common prefixes/modifiers that make searches too specific
+      searchQuery = searchQuery
+        .replace(/^(personalized|customized|custom|premium|luxury|exclusive|handcrafted|artisan|designer)\s+/gi, "")
+        .replace(/\s+(set|kit|pack|box|bundle|collection)\s*(\(.*?\))?$/gi, "")
+        .replace(/\(.*?\)/g, "") // Remove content in parentheses like (12pc)
+        .replace(/\+.*$/g, "") // Remove everything after + sign
+        .trim()
+    }
 
     // Special handling for gift cards and subscriptions
     if (searchQuery.includes("gift card") || searchQuery.includes("voucher")) {
@@ -116,6 +145,7 @@ type Recommendation = {
   id: string
   name: string
   image: string
+  imageKeywords?: string
   reasoning: string
   priceRange: string
 }
@@ -128,6 +158,7 @@ function coerceRecommendation(item: unknown, fallbackId: string): Recommendation
   const reasoning = typeof record.reasoning === "string" ? record.reasoning.trim() : ""
   const priceRange = typeof record.priceRange === "string" ? record.priceRange.trim() : ""
   const image = typeof record.image === "string" ? record.image.trim() : ""
+  const imageKeywords = typeof record.imageKeywords === "string" ? record.imageKeywords.trim() : undefined
   const idRaw = typeof record.id === "string" ? record.id.trim() : ""
 
   if (!name || !reasoning || !priceRange) return null
@@ -136,6 +167,7 @@ function coerceRecommendation(item: unknown, fallbackId: string): Recommendation
     id: idRaw || fallbackId,
     name,
     image,
+    imageKeywords,
     reasoning,
     priceRange,
   }
@@ -427,9 +459,17 @@ Each item in the array MUST have:
 
 - id: string
 - name: string
-- image: string (can be empty)
+- image: string (CRITICAL: Provide a direct, working image URL of the actual gift product. Search for and include a real product image link that displays the gift item. The URL must be a direct link to an image file that shows the actual product. If you cannot find a reliable product image URL, leave this field empty.)
+- imageKeywords: string (IMPORTANT: Provide 2-3 simple, descriptive keywords that represent the product visually for image search. These will be used as a fallback to find relevant images. Examples: "tea set ceramic", "photo frame wooden", "spa voucher card", "fitness gym equipment". Keep it simple and visual.)
 - reasoning: string (1–2 sentences explaining why this gift fits THIS person)
 - priceRange: string (INR format, e.g. "₹1,500 - ₹2,500")
+
+IMPORTANT FOR IMAGE FIELD:
+- The image URL should be a direct link to an actual product image
+- The image should visually represent the exact gift product you're recommending
+- Only provide URLs that are likely to be accessible and working
+- URLs should preferably be from e-commerce sites, product databases, or reliable image hosts
+- If you're uncertain about the URL's validity, leave the field empty
 
 Return ONLY the JSON array.
 `;
@@ -475,13 +515,30 @@ Return ONLY the JSON array.
       )
     }
 
-    // Fetch Unsplash images for each recommendation
+    // Process images for each recommendation
     const recommendationsWithImages = await Promise.all(
       recommendations.slice(0, 5).map(async (rec) => {
-        const image = await fetchUnsplashImage(rec.name)
+        let finalImage = ""
+        
+        // First, check if AI provided an image URL and if it's accessible
+        if (rec.image) {
+          const isAccessible = await isImageUrlAccessible(rec.image)
+          if (isAccessible) {
+            console.log(`Using AI-provided image for: ${rec.name}`)
+            finalImage = rec.image
+          } else {
+            console.log(`AI-provided image not accessible for: ${rec.name}, falling back to Unsplash`)
+          }
+        }
+        
+        // If no valid image from AI, fallback to Unsplash with keywords
+        if (!finalImage) {
+          finalImage = await fetchUnsplashImage(rec.name, rec.imageKeywords)
+        }
+        
         return {
           ...rec,
-          image,
+          image: finalImage,
         }
       })
     )

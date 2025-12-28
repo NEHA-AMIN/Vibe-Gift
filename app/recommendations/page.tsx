@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -20,8 +20,13 @@ export default function RecommendationsPage() {
   const router = useRouter()
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const hasLoadedRef = useRef(false)
 
   useEffect(() => {
+    // Prevent double-loading in React Strict Mode
+    if (hasLoadedRef.current) return
+    hasLoadedRef.current = true
+
     const load = async () => {
       const giftStateJson = sessionStorage.getItem("giftState")
       if (!giftStateJson) return
