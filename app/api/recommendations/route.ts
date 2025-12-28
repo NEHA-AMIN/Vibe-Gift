@@ -3,6 +3,42 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 
 export const runtime = "nodejs"
 
+async function fetchUnsplashImage(productName: string): Promise<string> {
+  try {
+    const accessKey = process.env.UNSPLASH_ACCESS_KEY
+    if (!accessKey) {
+      console.error("Missing UNSPLASH_ACCESS_KEY")
+      return ""
+    }
+
+    const searchQuery = encodeURIComponent(productName)
+    const response = await fetch(
+      `https://api.unsplash.com/search/photos?query=${searchQuery}&per_page=1&orientation=portrait`,
+      {
+        headers: {
+          Authorization: `Client-ID ${accessKey}`,
+        },
+      }
+    )
+
+    if (!response.ok) {
+      console.error(`Unsplash API error: ${response.status}`)
+      return ""
+    }
+
+    const data = await response.json()
+    
+    if (data.results && data.results.length > 0) {
+      return data.results[0].urls.regular || ""
+    }
+    
+    return ""
+  } catch (error) {
+    console.error("Error fetching Unsplash image:", error)
+    return ""
+  }
+}
+
 type GiftState = {
   relationship: string
   occasion: string
@@ -153,7 +189,18 @@ Return ONLY JSON. No markdown, no commentary.`
       )
     }
 
-    return NextResponse.json(recommendations.slice(0, 3))
+    // Fetch Unsplash images for each recommendation
+    const recommendationsWithImages = await Promise.all(
+      recommendations.slice(0, 3).map(async (rec) => {
+        const image = await fetchUnsplashImage(rec.name)
+        return {
+          ...rec,
+          image,
+        }
+      })
+    )
+
+    return NextResponse.json(recommendationsWithImages)
   } catch {
     return NextResponse.json({ error: "Failed to parse Gemini response", raw: geminiText.slice(0, 800) }, { status: 502 })
   }
